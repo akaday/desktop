@@ -5,6 +5,9 @@ import {
   SignInStep,
   IEndpointEntryState,
   IAuthenticationState,
+
+  ITwoFactorAuthenticationState,
+
   IExistingAccountWarning,
 } from '../../lib/stores'
 import { assertNever } from '../../lib/fatal-error'
@@ -37,8 +40,13 @@ const DefaultTitle = 'Sign in'
 const browserSignInInfoContent = (
   <p>
     Your browser will redirect you back to GitHub Desktop once you've signed in.
+
+    If your browser asks for your permission to launch GitHub Desktop please
+    allow it to.
+
     If your browser asks for your permission to launch GitHub Desktop, please
     allow it.
+
   </p>
 )
 
@@ -93,6 +101,18 @@ export class SignIn extends React.Component<ISignInProps, ISignInState> {
         this.props.dispatcher
           .removeAccount(state.existingAccount)
           .then(() => this.props.dispatcher.setSignInEndpoint(state.endpoint))
+
+        break
+      case SignInStep.Authentication:
+        if (!state.supportsBasicAuth) {
+          this.props.dispatcher.requestBrowserAuthentication()
+        } else {
+          this.props.dispatcher.setSignInCredentials(
+            this.state.username,
+            this.state.password
+          )
+        }
+
         break
       case SignInStep.Authentication:
         this.props.dispatcher.requestBrowserAuthentication()
@@ -130,10 +150,32 @@ export class SignIn extends React.Component<ISignInProps, ISignInState> {
         primaryButtonText = 'Continue'
         break
       case SignInStep.ExistingAccountWarning:
+
+        primaryButtonText = state.supportsBasicAuth
+          ? 'Continue'
+          : continueWithBrowserLabel
+        break
+      case SignInStep.TwoFactorAuthentication:
+        // ensure user has entered non-whitespace characters
+        const codeProvided = /\S+/.test(this.state.otpToken)
+        disableSubmit = !codeProvided
+        primaryButtonText = 'Sign in'
+        break
+      case SignInStep.Authentication:
+        if (!state.supportsBasicAuth) {
+          primaryButtonText = continueWithBrowserLabel
+        } else {
+          const validUserName = this.state.username.length > 0
+          const validPassword = this.state.password.length > 0
+          disableSubmit = !validUserName || !validPassword
+          primaryButtonText = 'Sign in'
+        }
+
         primaryButtonText = continueWithBrowserLabel
         break
       case SignInStep.Authentication:
         primaryButtonText = continueWithBrowserLabel
+
         break
       default:
         return assertNever(state, `Unknown sign in step ${stepKind}`)
@@ -156,10 +198,17 @@ export class SignIn extends React.Component<ISignInProps, ISignInState> {
         <p className="existing-account-warning">
           You're already signed in to{' '}
           <Ref>{new URL(getHTMLURL(state.endpoint)).host}</Ref> with the account{' '}
+
+          <Ref>{state.existingAccount.login}</Ref>. If you continue you will
+          first be signed out.
+        </p>
+        {!state.supportsBasicAuth && browserSignInInfoContent}
+
           <Ref>{state.existingAccount.login}</Ref>. If you continue, you will
           first be signed out.
         </p>
         {browserSignInInfoContent}
+
       </DialogContent>
     )
   }
@@ -187,6 +236,19 @@ export class SignIn extends React.Component<ISignInProps, ISignInState> {
           <Ref>{this.props.credentialHelperUrl}</Ref>.
         </p>
       ) : undefined
+
+
+    if (!state.supportsBasicAuth) {
+      return (
+        <DialogContent>
+          {credentialHelperInfo}
+          {browserSignInInfoContent}
+        </DialogContent>
+      )
+    }
+
+    const disableSubmit = state.loading
+
 
     return (
       <DialogContent>
