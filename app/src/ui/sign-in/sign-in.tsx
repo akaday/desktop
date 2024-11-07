@@ -132,30 +132,12 @@ export class SignIn extends React.Component<ISignInProps, ISignInState> {
         break
       case SignInStep.ExistingAccountWarning:
 
+
         primaryButtonText = continueWithBrowserLabel
         break
       case SignInStep.Authentication:
         primaryButtonText = continueWithBrowserLabel
 
-        primaryButtonText = state.supportsBasicAuth
-          ? 'Continue'
-          : continueWithBrowserLabel
-        break
-      case SignInStep.TwoFactorAuthentication:
-        // ensure user has entered non-whitespace characters
-        const codeProvided = /\S+/.test(this.state.otpToken)
-        disableSubmit = !codeProvided
-        primaryButtonText = 'Sign in'
-        break
-      case SignInStep.Authentication:
-        if (!state.supportsBasicAuth) {
-          primaryButtonText = continueWithBrowserLabel
-        } else {
-          const validUserName = this.state.username.length > 0
-          const validPassword = this.state.password.length > 0
-          disableSubmit = !validUserName || !validPassword
-          primaryButtonText = 'Sign in'
-        }
 
         break
       default:
@@ -179,15 +161,11 @@ export class SignIn extends React.Component<ISignInProps, ISignInState> {
         <p className="existing-account-warning">
           You're already signed in to{' '}
           <Ref>{new URL(getHTMLURL(state.endpoint)).host}</Ref> with the account{' '}
-        <Ref>{state.existingAccount.login}</Ref>. If you continue, you will
+
           first be signed out.
         </p>
         {browserSignInInfoContent}
 
-          <Ref>{state.existingAccount.login}</Ref>. If you continue you will
-          first be signed out.
-        </p>
-        {!state.supportsBasicAuth && browserSignInInfoContent}
 
       </DialogContent>
     )
@@ -228,6 +206,7 @@ export class SignIn extends React.Component<ISignInProps, ISignInState> {
     }
 
     const disableSubmit = state.loading
+
 
     return (
       <DialogContent>
