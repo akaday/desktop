@@ -20,19 +20,6 @@ import uuid from 'uuid'
 import { IOAuthAction } from '../parse-app-url'
 import { shell } from '../app-shell'
 
-import { noop } from 'lodash'
-import { isDotCom, isGHE } from '../endpoint-capabilities'
-import { AccountsStore } from './accounts-store'
-
-function getUnverifiedUserErrorMessage(login: string): string {
-  return `Unable to authenticate. The account ${login} is lacking a verified email address. Please sign in to GitHub.com, confirm your email address in the Emails section under Personal settings, and try again.`
-}
-
-const EnterpriseTooOldMessage = `The GitHub Enterprise version does not support GitHub Desktop. Talk to your server's administrator about upgrading to the latest version of GitHub Enterprise.`
-=====
-import noop from 'lodash/noop'
-import { AccountsStore } from './accounts-store'
-
 
 /**
  * An enumeration of the possible steps that the sign in
@@ -99,13 +86,12 @@ export interface IExistingAccountWarning extends ISignInState {
    * instance.
    */
 
+
   readonly supportsBasicAuth: boolean
   readonly existingAccount: Account
   readonly endpoint: string
   readonly forgotPasswordUrl: string
-=======
-  readonly existingAccount: Account
-  readonly endpoint: string
+
 
 
   readonly resultCallback: (result: SignInResult) => void
@@ -195,6 +181,10 @@ export class SignInStore extends TypedBaseStore<SignInState | null> {
 =======
   private emitAuthenticate(account: Account) {
     const event: IAuthenticationEvent = { account }
+
+  private emitAuthenticate(account: Account, method: SignInMethod) {
+    const event: IAuthenticationEvent = { account, method }
+
     this.emitter.emit('did-authenticate', event)
     this.state?.resultCallback({ kind: 'success', account })
   }
@@ -257,6 +247,103 @@ export class SignInStore extends TypedBaseStore<SignInState | null> {
     const existingAccount = this.accounts.find(
       x => x.endpoint === getDotComAPIEndpoint()
     )
+    if (existingAccount) {
+      this.setState({
+        kind: SignInStep.ExistingAccountWarning,
+        endpoint,
+        supportsBasicAuth: false,
+        existingAccount,
+        error: null,
+        loading: false,
+        forgotPasswordUrl: this.getForgotPasswordURL(endpoint),
+        resultCallback: resultCallback ?? noop,
+      })
+      return
+    }
+
+    this.setState({
+      kind: SignInStep.Authentication,
+      endpoint,
+      supportsBasicAuth: false,
+      error: null,
+      loading: false,
+      forgotPasswordUrl: this.getForgotPasswordURL(endpoint),
+      resultCallback: resultCallback ?? noop,
+    })
+
+    // Asynchronously refresh our knowledge about whether GitHub.com
+    // support username and password authentication or not.
+    this.endpointSupportsBasicAuth(endpoint)
+      .then(supportsBasicAuth => {
+        if (
+          this.state !== null &&
+          this.state.kind === SignInStep.Authentication &&
+          this.state.endpoint === endpoint
+        ) {
+          this.setState({ ...this.state, supportsBasicAuth })
+        }
+      })
+      .catch(err =>
+        log.error(
+          'Failed resolving whether GitHub.com supports password authentication',
+          err
+        )
+      )
+  }
+
+  /**
+   * Attempt to advance from the authentication step using a username
+   * and password. This method must only be called when the store is
+   * in the authentication step or an error will be thrown. If the
+   * provided credentials are valid the store will either advance to
+   * the Success step or to the TwoFactorAuthentication step if the
+   * user has enabled two factor authentication.
+   *
+   * If an error occurs during sign in (such as invalid credentials)
+   * the authentication state will be updated with that error so that
+   * the responsible component can present it to the user.
+   */
+  public async authenticateWithBasicAuth(
+    username: string,
+    password: string
+  ): Promise<void> {
+    const currentState = this.state
+
+    if (!currentState || currentState.kind !== SignInStep.Authentication) {
+      const stepText = currentState ? currentState.kind : 'null'
+      return fatalError(
+        `Sign in step '${stepText}' not compatible with authentication`
+      )
+    }
+
+    const endpoint = currentState.endpoint
+
+    this.setState({ ...currentState, loading: true })
+
+    let response: AuthorizationResponse
+    try {
+      response = await createAuthorization(endpoint, username, password, null)
+    } catch (e) {
+      this.emitError(e)
+      return
+    }
+
+    if (!this.state || this.state.kind !== SignInStep.Authentication) {
+      // Looks like the sign in flow has been aborted
+      return
+    }
+
+    if (response.kind === AuthorizationResponseKind.Authorized) {
+      const token = response.token
+      const user = await fetchUser(endpoint, token)
+
+      if (!this.state || this.state.kind !== SignInStep.Authentication) {
+        // Looks like the sign in flow has been aborted
+        return
+      }
+
+
+
     if (existingAccount) {
       this.setState({
         kind: SignInStep.ExistingAccountWarning,
@@ -421,14 +508,15 @@ export class SignInStore extends TypedBaseStore<SignInState | null> {
         },
       })
       shell.openExternal(getOAuthAuthorizationURL(endpoint, csrfToken))
-      log.info('[SignInStore] account resolved')
     })
       .then(account => {
         if (!this.state || this.state.kind !== SignInStep.Authentication) {
           // Looks like the sign in flow has been aborted
+          log.warn('[SignInStore] account resolved but session has changed')
           return
         }
 
+        log.info('[SignInStore] account resolved')
         this.emitAuthenticate(account)
         this.setState({
           kind: SignInStep.Success,
@@ -563,24 +651,6 @@ export class SignInStore extends TypedBaseStore<SignInState | null> {
 
     const existingAccount = this.accounts.find(x => x.endpoint === endpoint)
 
-
-      const existingAccount = this.accounts.find(x => x.endpoint === endpoint)
-
-      if (existingAccount) {
-        this.setState({
-          kind: SignInStep.ExistingAccountWarning,
-          endpoint,
-          existingAccount,
-          supportsBasicAuth,
-          error: null,
-          loading: false,
-          forgotPasswordUrl: this.getForgotPasswordURL(endpoint),
-          resultCallback: currentState.resultCallback,
-        })
-        return
-      }
-
-    if (existingAccount) {
 
       this.setState({
         kind: SignInStep.ExistingAccountWarning,

@@ -9,8 +9,6 @@ import {
   IEndpointEntryState,
   IAuthenticationState,
 
-  ITwoFactorAuthenticationState,
-
   IExistingAccountWarning,
 } from '../../lib/stores'
 import { Ref } from './ref'
